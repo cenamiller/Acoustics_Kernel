@@ -921,7 +921,7 @@ module atm_time_integration
       integer :: cell1, cell2, iEdge, iCell, i, k
       real (kind=RKIND) :: c2, rcv, rtheta_pp_tmp
       real (kind=RKIND) :: pgrad, flux, resm, rdts
-
+      
 
       rcv = rgas / (cp - rgas)
       c2 = cp * rcv
@@ -957,20 +957,23 @@ module atm_time_integration
                  pgrad = cqu(k,iEdge)*0.5*c2*(exner(k,cell1)+exner(k,cell2))*pgrad
                  pgrad = pgrad + 0.5*zxu(k,iEdge)*gravity*(rho_pp(k,cell1)+rho_pp(k,cell2))
                  ru_p(k,iEdge) = ru_p(k,iEdge) + dts*(tend_ru(k,iEdge) - pgrad) 
-              end do
-!!acc end parallel
-              ! accumulate ru_p for use later in scalar transport
-!DIR$ IVDEP
-              do k=1,nVertLevels
+                 ! accumulate ru_p for use later in scalar transport
                  ruAvg(k,iEdge) = ruAvg(k,iEdge) + ru_p(k,iEdge)
               end do
+!!acc end parallel
+              
+!DIR$ IVDEP
+       !       do k=1,nVertLevels
+       !          ruAvg(k,iEdge) = ruAvg(k,iEdge) + ru_p(k,iEdge)
+       !       end do
 
            end if ! end test for block-owned cells
 
         end do ! end loop over edges
 !$acc end kernels
       else !  this is all that us needed for ru_p update for first acoustic step in RK substep
-!!$acc kernels
+!$acc parallel vector_length(128)
+!$acc loop 
         do iEdge=edgeStart,edgeEnd ! MGD do we really just need edges touching owned cells?
 
            cell1 = cellsOnEdge(1,iEdge)
@@ -980,17 +983,19 @@ module atm_time_integration
            if (cell1 <= nCellsSolve .or. cell2 <= nCellsSolve ) then
 
 !DIR$ IVDEP
-              do k=1,nVertLevels
+
+              do k=1,nVertLevels             
                  ru_p(k,iEdge) = dts*tend_ru(k,iEdge)
+                 ruAvg(k,iEdge) = ru_p(k,iEdge)
               end do
 !DIR$ IVDEP
-              do k=1,nVertLevels
-                 ruAvg(k,iEdge) = ru_p(k,iEdge)                 
-              end do
+      !        do k=1,nVertLevels
+      !           ruAvg(k,iEdge) = ru_p(k,iEdge)                 
+      !        end do
 
            end if ! end test for block-owned cells
         end do ! end loop over edges
-!!$acc end kernels
+!$acc end parallel
       end if ! test for first acoustic step
 !!$acc kernels
       if (small_step == 1) then  ! initialize here on first small timestep.
